@@ -19,7 +19,7 @@ from conceptforge.config import ImagingConfig
 from conceptforge.imaging import landmarks as lm
 from conceptforge.imaging.matting import MatteResult, clean_mask, extract_matte
 from conceptforge.imaging.raster import fit_within, load_rgba, mask_bounds, resize_rgba, to_uint8
-from conceptforge.imaging.sheet import Panel, classify_panels, split_panels
+from conceptforge.imaging.sheet import Panel, classify_panels, profile_faces_right, split_panels
 from conceptforge.reporting import NULL_REPORTER, Reporter
 
 VIEW_ORDER = ("front", "side", "back")
@@ -37,6 +37,9 @@ class ConceptView:
     #: Rows of the top of the head and the ground plane inside the canvas.
     top_y: float
     bottom_y: float
+    #: True when the view was mirrored during alignment (side views are
+    #: normalised to face +Z, i.e. towards larger image x).
+    mirrored: bool = False
 
     @property
     def size(self) -> tuple[int, int]:
@@ -174,7 +177,7 @@ def _align_views(
     """
     front = labelled["front"]
     reference_height = max(1, front.silhouette_height)
-    scaled: dict[str, tuple[np.ndarray, np.ndarray, float]] = {}
+    scaled: dict[str, tuple[np.ndarray, np.ndarray, float, bool]] = {}
     for name in VIEW_ORDER:
         panel = labelled.get(name)
         if panel is None:
@@ -182,6 +185,13 @@ def _align_views(
         crop_rgba, crop_mask = _crop_to_silhouette(panel)
         if crop_mask.shape[0] < 2 or crop_mask.shape[1] < 2:
             continue
+        mirrored = False
+        if name == "side" and not profile_faces_right(crop_mask):
+            # Normalise the profile to face +Z so depth is reconstructed the
+            # right way round.
+            crop_rgba = np.ascontiguousarray(crop_rgba[:, ::-1])
+            crop_mask = np.ascontiguousarray(crop_mask[:, ::-1])
+            mirrored = True
         scale = reference_height / float(crop_mask.shape[0])
         new_size = (max(2, int(round(crop_mask.shape[1] * scale))), reference_height)
         rgba_s = resize_rgba(crop_rgba, new_size)
@@ -190,7 +200,7 @@ def _align_views(
         if not mask_s.any():
             continue
         axis = lm.symmetry_axis(mask_s) if name in ("front", "back") else _bbox_center_x(mask_s)
-        scaled[name] = (rgba_s, mask_s, axis)
+        scaled[name] = (rgba_s, mask_s, axis, mirrored)
 
     if "front" not in scaled:
         raise ValueError("front view could not be prepared from the artwork")
@@ -198,12 +208,12 @@ def _align_views(
     pad_y = max(4, int(round(0.03 * reference_height)))
     canvas_h = reference_height + 2 * pad_y
     half_width = 0
-    for _, mask_s, axis in scaled.values():
+    for _, mask_s, axis, _ in scaled.values():
         half_width = max(half_width, int(np.ceil(max(axis, mask_s.shape[1] - axis))))
     canvas_w = 2 * (half_width + max(4, int(round(0.03 * reference_height)))) + 1
 
     views: dict[str, ConceptView] = {}
-    for name, (rgba_s, mask_s, axis) in scaled.items():
+    for name, (rgba_s, mask_s, axis, mirrored) in scaled.items():
         offset_x = int(round(canvas_w * 0.5 - axis))
         canvas_rgba = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
         canvas_mask = np.zeros((canvas_h, canvas_w), dtype=bool)
@@ -220,6 +230,7 @@ def _align_views(
             pivot_x=float(pivot),
             top_y=float(pad_y),
             bottom_y=float(pad_y + reference_height),
+            mirrored=mirrored,
         )
     return views, (canvas_w, canvas_h)
 

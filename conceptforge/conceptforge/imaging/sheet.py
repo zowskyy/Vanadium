@@ -194,6 +194,48 @@ def classify_panels(panels: list[Panel], panel_order: list[str] | None = None) -
     return views
 
 
+def profile_faces_right(mask: np.ndarray) -> bool:
+    """Guess which way a profile view is facing.
+
+    ConceptForge builds characters facing ``+Z``, and the side view supplies the
+    depth axis, so getting this backwards would reconstruct the character
+    inside-out. Two silhouette cues vote:
+
+    * the feet, because toes point forwards and heels do not;
+    * the chest relative to the pelvis, because a chest is carried in front of
+      the hips in essentially every character design.
+
+    The foot cue is weighted higher: it is a larger, more consistent offset than
+    the torso lean, and it survives capes and backpacks.
+    """
+    mask = np.asarray(mask).astype(bool)
+    _, y0, _, y1 = mask_bounds(mask)
+    if not mask.any() or y1 - y0 < 8:
+        return True
+    height = float(y1 - y0)
+    columns = np.arange(mask.shape[1], dtype=np.float64)
+
+    def band_centroid(lo_fraction: float, hi_fraction: float) -> float | None:
+        lo = int(y0 + lo_fraction * height)
+        hi = int(y0 + hi_fraction * height)
+        weights = mask[max(0, lo) : max(lo + 1, hi)].sum(axis=0).astype(np.float64)
+        if weights.sum() <= 0:
+            return None
+        return float(np.average(columns, weights=weights))
+
+    feet = band_centroid(0.94, 1.0)
+    lower_leg = band_centroid(0.80, 0.92)
+    chest = band_centroid(0.20, 0.38)
+    pelvis = band_centroid(0.45, 0.60)
+
+    score = 0.0
+    if feet is not None and lower_leg is not None:
+        score += 2.0 * (feet - lower_leg) / height
+    if chest is not None and pelvis is not None:
+        score += 1.0 * (chest - pelvis) / height
+    return score >= 0.0
+
+
 def _rank01(values: np.ndarray) -> np.ndarray:
     """Map values to 0..1 by rank, robust to outliers and equal values."""
     values = np.asarray(values, dtype=np.float64)
