@@ -1,0 +1,8 @@
+# Runtime dependencies for ConceptForge.
+# Deliberately minimal: the entire geometry, rigging, animation, texturing and
+# rendering stack is implemented in-repo on top of NumPy.
+numpy>=1.24
+pillow>=9.0
+
+# Development / test only.
+pytest>=7

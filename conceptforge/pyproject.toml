@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conceptforge"
+version = "0.1.0"
+description = "Turn 2D character concept art into rigged, textured, animated 3D characters for production."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ConceptForge contributors" }]
+keywords = ["3d", "animation", "rigging", "gltf", "concept-art", "character", "pipeline"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Topic :: Multimedia :: Graphics :: 3D Modeling",
+  "Topic :: Multimedia :: Graphics :: 3D Rendering",
+  "Programming Language :: Python :: 3",
+]
+dependencies = ["numpy>=1.24", "pillow>=9.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+conceptforge = "conceptforge.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/conceptforge/conceptforge"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["conceptforge*"]
+
+[tool.setuptools.package-data]
+"conceptforge.app" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::RuntimeWarning"]
