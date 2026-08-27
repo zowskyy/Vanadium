@@ -30,7 +30,14 @@ class GeometryResult:
 
     lods: list[Mesh] = field(default_factory=list)
     scale: float = 1.0
-    """Height units -> world units factor applied to the mesh."""
+    """Height units -> world units uniform factor applied to the mesh."""
+
+    transform: np.ndarray = field(default_factory=lambda: np.eye(4))
+    """4x4 matrix taking voxel-field (height unit) space into mesh world space.
+
+    Anything that needs to land in the same space as the mesh - the skeleton,
+    joint depth probes, texture projection - goes through this.
+    """
 
     stats: dict[str, Any] = field(default_factory=dict)
 
@@ -65,7 +72,8 @@ def build_geometry(
         taubin_smooth(mesh, max(2, config.smooth_iterations // 4), config.smooth_lambda, config.smooth_mu)
 
     mesh.compute_normals()
-    scale = _normalise_scale(mesh, config.character_height)
+    transform = _normalise_scale(mesh, config.character_height)
+    scale = float(transform[0, 0])
     mesh.compute_normals()
     # UV assignment splits vertices along the front/back seam, so watertightness
     # is measured on the solid before that point.
@@ -88,21 +96,26 @@ def build_geometry(
     }
     stats.update(voxels.stats)
     stats.update(uv_area_distortion(mesh))
-    return GeometryResult(mesh=mesh, field=voxels, lods=lods, scale=scale, stats=stats)
+    return GeometryResult(
+        mesh=mesh, field=voxels, lods=lods, scale=scale, transform=transform, stats=stats
+    )
 
 
-def _normalise_scale(mesh: Mesh, target_height: float) -> float:
+def _normalise_scale(mesh: Mesh, target_height: float) -> np.ndarray:
     """Scale the mesh to real-world height, feet on the ground, centred in X/Z.
 
     Engines and DCCs assume a character stands on the origin at true scale; a
     model that arrives 1.0 units tall and centred on its own middle costs an
-    artist a manual fix on every import.
+    artist a manual fix on every import. Returns the transform applied.
     """
     lo, hi = mesh.bounds()
     current = float(hi[1] - lo[1])
     if current < 1e-9:
-        return 1.0
+        return np.eye(4)
     factor = float(target_height) / current
     origin = np.array([0.5 * (lo[0] + hi[0]), lo[1], 0.5 * (lo[2] + hi[2])])
     mesh.vertices = (mesh.vertices - origin) * factor
-    return factor
+    transform = np.eye(4)
+    transform[0, 0] = transform[1, 1] = transform[2, 2] = factor
+    transform[:3, 3] = -origin * factor
+    return transform
